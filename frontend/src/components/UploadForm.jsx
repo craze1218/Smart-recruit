@@ -17,9 +17,6 @@ import {
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
-// 🔑 Google API key from .env
-const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
-
 function UploadForm({ setMatchedSkills, setMissingSkills, setSkillSuggestions, userId }) {
   const [resumeText, setResumeText] = useState('');
   const [jobText, setJobText] = useState('');
@@ -73,30 +70,26 @@ function UploadForm({ setMatchedSkills, setMissingSkills, setSkillSuggestions, u
     }
   };
 
-  const analyzeTextWithGoogle = async (text) => {
-    console.log('Analyzing text with Google NLP:', text);
-    console.log('API key used:', apiKey);
-
-    const response = await fetch(
-      `https://language.googleapis.com/v1/documents:analyzeEntities?key=${apiKey}`,
-      {
+  const analyzeTextWithTextRazor = async (text) => {
+    try {
+      const response = await fetch('http://localhost:3001/analyze-text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          document: {
-            type: 'PLAIN_TEXT',
-            content: text
-          },
-          encodingType: 'UTF8'
-        })
-      }
-    );
+        body: JSON.stringify({ text })
+      });
 
-    const data = await response.json();
-    console.log('Google NLP response:', data);
+      const data = await response.json();
+      console.log('TextRazor response:', data);
 
-    if (!data.entities) return [];
-    return data.entities.map(entity => entity.name.toLowerCase());
+      if (!data.response?.entities) return [];
+      return data.response.entities
+        .filter(entity => entity.confidenceScore > 0.4)
+        .map(entity => entity.entityId?.toLowerCase())
+        .filter(Boolean);
+    } catch (error) {
+      console.error('TextRazor error:', error);
+      return [];
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -105,8 +98,8 @@ function UploadForm({ setMatchedSkills, setMissingSkills, setSkillSuggestions, u
     setMessage('');
 
     try {
-      const resumeSkills = await analyzeTextWithGoogle(resumeText);
-      const jobSkills = await analyzeTextWithGoogle(jobText);
+      const resumeSkills = await analyzeTextWithTextRazor(resumeText);
+      const jobSkills = await analyzeTextWithTextRazor(jobText);
 
       console.log('Extracted Resume Skills:', resumeSkills);
       console.log('Extracted Job Skills:', jobSkills);
@@ -138,8 +131,8 @@ function UploadForm({ setMatchedSkills, setMissingSkills, setSkillSuggestions, u
           : '⚠️ No skills matched or missing. Try uploading clearer resume and JD files.'
       );
     } catch (error) {
-      console.error('Google NLP error:', error);
-      setMessage('❌ Failed to analyze text. Check your API key or quota.');
+      console.error('TextRazor error:', error);
+      setMessage('❌ Failed to analyze text. Check your backend or API key.');
     } finally {
       setLoading(false);
     }

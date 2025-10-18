@@ -2,7 +2,8 @@ const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
-require('dotenv').config(); // Optional: use .env for credentials
+const fetch = require('node-fetch');
+require('dotenv').config();
 
 const app = express();
 app.use(cors());
@@ -10,25 +11,27 @@ app.use(express.json());
 
 // ✅ Connect to MySQL
 const db = mysql.createConnection({
-  host: 'localhost',
+  host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  database: 'recruitment'
+  database: process.env.DB_NAME || 'recruitment'
 });
+
 db.connect((err) => {
   if (err) {
     console.error('❌ MySQL connection failed:', err.message);
+    process.exit(1);
   } else {
     console.log('✅ Connected to MySQL database');
   }
 });
 
-// ✅ Health check route
+// ✅ Health check
 app.get('/', (req, res) => {
   res.send('✅ Backend is working!');
 });
 
-// ✅ Signup route
+// ✅ Signup
 app.post('/signup', async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -48,7 +51,7 @@ app.post('/signup', async (req, res) => {
   }
 });
 
-// ✅ Login route
+// ✅ Login
 app.post('/login', (req, res) => {
   const { email, password } = req.body;
   const query = 'SELECT * FROM users WHERE email = ?';
@@ -98,8 +101,39 @@ app.delete('/delete-report/:id', (req, res) => {
   });
 });
 
+// ✅ TextRazor proxy route
+app.post('/analyze-text', async (req, res) => {
+  const { text } = req.body;
+  const apiKey = process.env.TEXTRAZOR_API_KEY;
+
+  if (!apiKey) {
+    return res.status(400).json({ error: 'TextRazor API key missing in backend .env' });
+  }
+
+  try {
+    const response = await fetch('https://api.textrazor.com/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'x-textrazor-key': apiKey
+      },
+      body: new URLSearchParams({
+        text,
+        extractors: 'entities,topics,words,phrases'
+      })
+    });
+
+    const data = await response.json();
+    console.log('🧠 TextRazor full response:', JSON.stringify(data, null, 2));
+
+    res.json(data);
+  } catch (err) {
+    console.error('TextRazor backend error:', err);
+    res.status(500).json({ error: 'Failed to fetch from TextRazor' });
+  }
+});
+
 // ✅ Start server
 app.listen(3001, () => {
   console.log('🚀 Server running on http://localhost:3001');
 });
-
