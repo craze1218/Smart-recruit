@@ -41,7 +41,7 @@ function SkillHeatmap({ matchedSkills, missingSkills }) {
 
   return (
     <div style={{ marginTop: '2rem' }}>
-      <h2>Skill Match Heatmap</h2>
+      <h2>Missing Skill Heatmap</h2>
       <Bar data={data} options={options} />
     </div>
   );

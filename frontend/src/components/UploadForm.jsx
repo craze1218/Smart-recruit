@@ -1,45 +1,38 @@
-// src/components/UploadForm.jsx
 import React, { useState } from 'react';
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
+import {
+  Box,
+  Typography,
+  Grid,
+  Button,
+  Paper,
+  InputLabel,
+  Input,
+  List,
+  ListItem,
+  ListItemText,
+  Divider
+} from '@mui/material';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
+// 🔑 Google API key from .env
+const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
 
 function UploadForm({ setMatchedSkills, setMissingSkills, setSkillSuggestions, userId }) {
   const [resumeText, setResumeText] = useState('');
   const [jobText, setJobText] = useState('');
-  const [skillSuggestions, setLocalSuggestions] = useState([]);
-
-  const skillKeywords = [
-    'JavaScript', 'React', 'Node.js', 'Python', 'AWS', 'Docker',
-    'SQL', 'MongoDB', 'HTML', 'CSS', 'Git', 'REST', 'GraphQL',
-    'Kubernetes', 'TypeScript', 'Java', 'C++', 'Linux', 'Agile'
-  ];
-
-  const suggestionMap = {
-    'AWS': 'Consider cloud certification',
-    'Docker': 'Can be learned quickly with tutorials',
-    'GraphQL': 'Optional but useful for APIs',
-    'Kubernetes': 'Advanced skill, consider training',
-    'TypeScript': 'Improves code safety, easy to adopt',
-    'Agile': 'Soft skill, can be learned on the job',
-    'Git': 'Essential for collaboration',
-    'React': 'Core frontend skill, learn via projects',
-    'Node.js': 'Backend JavaScript, good to know',
-    'Python': 'Widely used, beginner-friendly',
-    'SQL': 'Important for data roles',
-    'MongoDB': 'NoSQL alternative, learn basics',
-    'Linux': 'Useful for devops and servers',
-    'Java': 'Common in enterprise apps',
-    'C++': 'Used in performance-critical systems'
-  };
+  const [localSuggestions, setLocalSuggestions] = useState([]);
+  const [matchedSkills, setMatched] = useState([]);
+  const [missingSkills, setMissing] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
 
   const extractTextFromFile = async (file) => {
     const ext = file.name.split('.').pop().toLowerCase();
 
-    if (ext === 'txt') {
-      return await file.text();
-    }
+    if (ext === 'txt') return await file.text();
 
     if (ext === 'docx') {
       const arrayBuffer = await file.arrayBuffer();
@@ -67,6 +60,7 @@ function UploadForm({ setMatchedSkills, setMissingSkills, setSkillSuggestions, u
     if (file) {
       const text = await extractTextFromFile(file);
       setResumeText(text);
+      console.log('Resume text:', text);
     }
   };
 
@@ -75,56 +69,102 @@ function UploadForm({ setMatchedSkills, setMissingSkills, setSkillSuggestions, u
     if (file) {
       const text = await extractTextFromFile(file);
       setJobText(text);
+      console.log('Job description text:', text);
     }
   };
 
-  const extractSkills = (text) => {
-    const lowerText = text.toLowerCase();
-    return skillKeywords.filter(skill =>
-      lowerText.includes(skill.toLowerCase())
+  const analyzeTextWithGoogle = async (text) => {
+    console.log('Analyzing text with Google NLP:', text);
+    console.log('API key used:', apiKey);
+
+    const response = await fetch(
+      `https://language.googleapis.com/v1/documents:analyzeEntities?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          document: {
+            type: 'PLAIN_TEXT',
+            content: text
+          },
+          encodingType: 'UTF8'
+        })
+      }
     );
+
+    const data = await response.json();
+    console.log('Google NLP response:', data);
+
+    if (!data.entities) return [];
+    return data.entities.map(entity => entity.name.toLowerCase());
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    setLoading(true);
+    setMessage('');
 
-    const resumeSkills = extractSkills(resumeText);
-    const jobSkills = extractSkills(jobText);
+    try {
+      const resumeSkills = await analyzeTextWithGoogle(resumeText);
+      const jobSkills = await analyzeTextWithGoogle(jobText);
 
-    const matched = jobSkills.filter(skill => resumeSkills.includes(skill));
-    const missing = jobSkills.filter(skill => !resumeSkills.includes(skill));
-    const suggestions = missing.map(skill => ({
-      skill,
-      advice: suggestionMap[skill] || 'Consider learning this skill'
-    }));
+      console.log('Extracted Resume Skills:', resumeSkills);
+      console.log('Extracted Job Skills:', jobSkills);
 
-    setMatchedSkills(matched);
-    setMissingSkills(missing);
-    setSkillSuggestions(suggestions);
-    setLocalSuggestions(suggestions);
+      const matched = jobSkills.filter(skill => resumeSkills.includes(skill));
+      const missing = jobSkills.filter(skill => !resumeSkills.includes(skill));
+      const suggestions = missing.map(skill => ({
+        skill,
+        advice: 'Consider learning this skill'
+      }));
+
+      console.log('Matched Skills:', matched);
+      console.log('Missing Skills:', missing);
+
+      setMatched(matched);
+      setMissing(missing);
+      setMatchedSkills(matched);
+      setMissingSkills(missing);
+      setSkillSuggestions(suggestions);
+      setLocalSuggestions(suggestions);
+
+      localStorage.setItem('matchedSkills', JSON.stringify(matched));
+      localStorage.setItem('missingSkills', JSON.stringify(missing));
+      localStorage.setItem('activeTab', 2);
+
+      setMessage(
+        matched.length || missing.length
+          ? '✅ Skills matched successfully!'
+          : '⚠️ No skills matched or missing. Try uploading clearer resume and JD files.'
+      );
+    } catch (error) {
+      console.error('Google NLP error:', error);
+      setMessage('❌ Failed to analyze text. Check your API key or quota.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDownload = () => {
     let report = 'Explainable Recruitment Report\n\n';
 
     report += '✅ Matched Skills:\n';
-    setMatchedSkills.forEach(skill => {
+    matchedSkills.forEach(skill => {
       report += `- ${skill}\n`;
     });
 
     report += '\n❌ Missing Skills & Suggestions:\n';
-    skillSuggestions.forEach(({ skill, advice }) => {
+    localSuggestions.forEach(({ skill, advice }) => {
       report += `- ${skill}: ${advice}\n`;
     });
 
-    // Save report to backend with userId
     fetch('http://localhost:3001/save-report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         matched: matchedSkills,
         missing: missingSkills,
-        suggestions: skillSuggestions,
+        suggestions: localSuggestions,
         userId
       })
     })
@@ -146,37 +186,65 @@ function UploadForm({ setMatchedSkills, setMissingSkills, setSkillSuggestions, u
   };
 
   return (
-    <div>
-      <h2>Upload Resume & Job Description (.txt, .pdf, .docx)</h2>
+    <Paper elevation={2} sx={{ p: 3, backgroundColor: '#1e1e1e', color: '#fff' }}>
+      <Typography variant="h6" color="primary" gutterBottom>
+        📤 Upload Resume & Job Description
+      </Typography>
+
       <form onSubmit={handleSubmit}>
-        <div>
-          <label>Resume:</label>
-          <input type="file" accept=".txt,.pdf,.docx" onChange={handleResumeChange} />
-        </div>
-        <div>
-          <label>Job Description:</label>
-          <input type="file" accept=".txt,.pdf,.docx" onChange={handleJobChange} />
-        </div>
-        <button type="submit">Extract & Match</button>
+        <Grid container spacing={3}>
+          <Grid item xs={12} sm={6}>
+            <InputLabel sx={{ color: '#ccc' }}>Resume File</InputLabel>
+            <Input type="file" fullWidth onChange={handleResumeChange} inputProps={{ accept: '.txt,.pdf,.docx' }} />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <InputLabel sx={{ color: '#ccc' }}>Job Description File</InputLabel>
+            <Input type="file" fullWidth onChange={handleJobChange} inputProps={{ accept: '.txt,.pdf,.docx' }} />
+          </Grid>
+          <Grid item xs={12}>
+            <Button type="submit" variant="contained" color="secondary" fullWidth>
+              🔍 Extract & Match Skills
+            </Button>
+          </Grid>
+        </Grid>
       </form>
 
-      <div style={{ marginTop: '2rem' }}>
-        <h3>❌ Missing Skills & Suggestions</h3>
-        <ul>
-          {skillSuggestions.map(({ skill, advice }, index) => (
-            <li key={index} style={{ color: 'red' }}>
-              <strong>{skill}</strong>: {advice}
-            </li>
-          ))}
-        </ul>
+      {loading && (
+        <Typography variant="body2" sx={{ mt: 2, color: '#ccc' }}>
+          ⏳ Matching skills, please wait...
+        </Typography>
+      )}
 
-        {skillSuggestions.length > 0 && (
-          <button onClick={handleDownload} style={{ marginTop: '1rem' }}>
+      {message && (
+        <Typography variant="body2" sx={{ mt: 2, color: message.includes('✅') ? 'lightgreen' : 'tomato' }}>
+          {message}
+        </Typography>
+      )}
+
+      {localSuggestions.length > 0 && (
+        <Box sx={{ mt: 4 }}>
+          <Divider sx={{ mb: 2, bgcolor: '#444' }} />
+          <Typography variant="subtitle1" color="warning.main" gutterBottom>
+            ❌ Missing Skills & Suggestions
+          </Typography>
+          <List dense>
+            {localSuggestions.map(({ skill, advice }, index) => (
+              <ListItem key={index} sx={{ color: 'orange' }}>
+                <ListItemText primary={`${skill}: ${advice}`} />
+              </ListItem>
+            ))}
+          </List>
+          <Button
+            variant="outlined"
+            color="primary"
+            onClick={handleDownload}
+            sx={{ mt: 2 }}
+          >
             📄 Download & Save Report
-          </button>
-        )}
-      </div>
-    </div>
+          </Button>
+        </Box>
+      )}
+    </Paper>
   );
 }
 
